@@ -7,8 +7,6 @@ from sympy import * # symbolic calculation for IK
 import transformations as tfs
 from mpl_toolkits.mplot3d import Axes3D  
 import matplotlib.pyplot as plt
-from ipywidgets import interact, interactive, fixed, interact_manual
-import ipywidgets as widgets
 
 class Robot4CRU(object):
     """class of Robot_4CRU"""
@@ -17,6 +15,7 @@ class Robot4CRU(object):
         self.set_geometric_params([0, 0, 1, 4]) # A min alpha, beta = 45 deg, long ee diag length, long base diag length
         #self.set_geometric_params([4, 0, 1, 4]) # B max alpha, beta = 45 deg, long ee diag length, long base diag length
         self.operation_mode = "H1" # H1 = Schoenfiles, H3 = Additional, H2 = Reverse Schoenfiles
+        self.tf_mat = np.eye(4)
         
     def set_geometric_params(self, new_geometric_indcs):
         # End-effector joint axis distribution angles (5 cases)
@@ -103,8 +102,15 @@ class Robot4CRU(object):
         #print("swivel angles (deg): ", np.rad2deg(all_swivel_angles))
         return selected_joint_pos_sol.tolist()
     
-    def solve_inv_kin_traj(self):
-        pass
+    def solve_inv_kin_traj(self, des_pose_4dof_traj):
+        Hh = self.joint_pos_range[1]/2.0*np.ones((4, des_pose_4dof_traj.shape[1]))
+        TFtf = np.zeros((des_pose_4dof_traj.shape[1],4,4))
+        for i in range(des_pose_4dof_traj.shape[1]):
+            Hh[:,i] = self.inverse_kinematics(des_pose_4dof_traj[:,i])
+            tf_mat_base_to_eeff, X, Y, Z, x_0, x_1, x_2, x_3 = self.convert_pose_4dof_to_tf_mat_and_7var(des_pose_4dof_traj[:,i])
+            TFtf[i,:,:] = tf_mat_base_to_eeff
+#         print(Hh)
+        return Hh, TFtf
     
     def check_ik_feasible(self, pose_4dof):
         tf_mat_base_to_eeff, X, Y, Z, x_0, x_1, x_2, x_3 = self.convert_pose_4dof_to_tf_mat_and_7var(pose_4dof)
@@ -191,6 +197,54 @@ class Robot4CRU(object):
         X, Y, Z, x_0, x_1, x_2, x_3 = convert_tf_mat_to_7var(tf_mat_base_to_eeff)
 
         return tf_mat_base_to_eeff, X, Y, Z, x_0, x_1, x_2, x_3
+    
+    def drawRobot(self, ax):
+        # plot robot
+        a = self.a
+        b = self.b
+        c = self.c
+        d = self.d
+        h1 = self.joint_pos[0]
+        h2 = self.joint_pos[1]
+        h3 = self.joint_pos[2]
+        h4 = self.joint_pos[3]
+        Xbase = np.array([a, -a, -a, a, a])
+        Ybase = np.array([b, b, -b, -b, b])
+        Zbase_top = np.ones(5)*self.joint_pos_range[1]
+
+        # draw base frame
+        ax.plot(Xbase,Ybase, 'blue')
+        ax.plot(Xbase, Ybase, Zbase_top, 'blue')
+        ax.plot(np.array([a,a]),np.array([-b,-b]),self.joint_pos_range, 'blue')
+        ax.plot(np.array([a,a]),np.array([b,b]),self.joint_pos_range, 'blue')
+        ax.plot(np.array([-a,-a]),np.array([b,b]),self.joint_pos_range, 'blue')
+        ax.plot(np.array([-a,-a]),np.array([-b,-b]),self.joint_pos_range, 'blue')
+
+        # draw rods
+        B_loc = np.transpose(np.array([[c, -d, 0 ,1],[c, d, 0 ,1], [-c, d, 0 ,1], [-c, -d, 0 ,1]]))
+        B_abs = np.dot(self.tf_mat, B_loc)
+        ax.plot(np.array([a, B_abs[0,0]]),np.array([-b, B_abs[1,0]]), np.array([h1, B_abs[2,0]]), 'green')
+        ax.plot(np.array([a, B_abs[0,1]]),np.array([b, B_abs[1,1]]), np.array([h2, B_abs[2,1]]), 'green')
+        ax.plot(np.array([-a, B_abs[0,2]]),np.array([b, B_abs[1,2]]), np.array([h3, B_abs[2,2]]), 'green')
+        ax.plot(np.array([-a, B_abs[0,3]]),np.array([-b, B_abs[1,3]]), np.array([h4, B_abs[2,3]]), 'green')
+
+        # draw ee frame
+        ax.plot(np.append(B_abs[0,:], B_abs[0,0]), np.append(B_abs[1,:],B_abs[1,0]), np.append(B_abs[2,:], B_abs[2,0]), 'red')
+
+        # decorations
+        ax.set_xlabel('X (m)')
+        ax.set_ylabel('Y (m)')
+        ax.set_zlabel('Z (m)')
+        set_axes_equal(ax) 
+        
+        r1 = la.norm(np.array([a, -b, h1]) - np.array([B_abs[0,0], B_abs[1,0], B_abs[2,0]]), 2)
+        r2 = la.norm(np.array([a, b, h2]) - np.array([B_abs[0,1], B_abs[1,1], B_abs[2,1]]), 2)
+        r3 = la.norm(np.array([-a, b, h3]) - np.array([B_abs[0,2], B_abs[1,2], B_abs[2,2]]), 2)
+        r4 = la.norm(np.array([-a, -b, h4]) - np.array([B_abs[0,3], B_abs[1,3], B_abs[2,3]]), 2)
+#         print('r1= ', r1)
+#         print('r2= ', r2)
+#         print('r3= ', r3)
+#         print('r4= ', r4)
 
 def convert_tf_mat_to_7var(tf_mat):
     quat = tfs.quaternion_from_matrix(tf_mat)
@@ -204,3 +258,28 @@ def py_ang(v1, v2):
     cosang = np.dot(v1, v2)
     sinang = la.norm(np.cross(v1, v2))
     return np.arctan2(sinang, cosang)
+
+# function for scaling axes in 3D plot to be equal
+def set_axes_radius(ax, origin, radius):
+    ax.set_xlim3d([origin[0] - radius, origin[0] + radius])
+    ax.set_ylim3d([origin[1] - radius, origin[1] + radius])
+    ax.set_zlim3d([origin[2] - radius, origin[2] + radius])
+
+def set_axes_equal(ax):
+    '''Make axes of 3D plot have equal scale so that spheres appear as spheres,
+    cubes as cubes, etc..  This is one possible solution to Matplotlib's
+    ax.set_aspect('equal') and ax.axis('equal') not working for 3D.
+
+    Input
+      ax: a matplotlib axis, e.g., as output from plt.gca().
+    '''
+
+    limits = np.array([
+        ax.get_xlim3d(),
+        ax.get_ylim3d(),
+        ax.get_zlim3d(),
+    ])
+
+    origin = np.mean(limits, axis=1)
+    radius = 0.5 * np.max(np.abs(limits[:, 1] - limits[:, 0]))
+    set_axes_radius(ax, origin, radius)
