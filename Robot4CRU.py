@@ -3,10 +3,12 @@ import numpy as np
 import numpy.matlib
 import numpy.linalg as la
 import math
-from sympy import * # symbolic calculation for IK
 import transformations as tfs
 from mpl_toolkits.mplot3d import Axes3D  
 import matplotlib.pyplot as plt
+
+import forward_kin_4CRU as fwd_kin
+from sympy import * # symbolic calculation for IK/FK
 
 class Robot4CRU(object):
     """class of Robot_4CRU"""
@@ -98,7 +100,7 @@ class Robot4CRU(object):
             # if no solution, return current joint positions
             print("No IK Solution: at least one discriminant is negative: ", discriminants)
         # check the swivel angle limit on both ends of the U-U rod: provide warning on the screen if the joint are out of ranges
-        print("IK joint pos solutions: ", selected_joint_pos_sol)
+#         print("IK joint pos solutions: ", selected_joint_pos_sol)
         #print("swivel angles (deg): ", np.rad2deg(all_swivel_angles))
         return selected_joint_pos_sol.tolist()
     
@@ -154,6 +156,22 @@ class Robot4CRU(object):
             has_solution = False
 
         return reals, discriminants, has_solution
+    
+    def forward_kinematics(self):
+        coeffs = fwd_kin.cal_tp_poly_coeffs_H1(self.joint_pos, self.a, self.b, self.c, self.d, self.r)
+        poly_roots = np.roots(coeffs)
+        real_roots = poly_roots[~numpy.iscomplex(poly_roots)]
+        real_roots = np.real(real_roots)
+        return real_roots
+    
+    def tf_mat_from_tp(self, tp):
+        Xsol, Ysol, Zsol = fwd_kin.cal_xyz_sol(tp, self.joint_pos, self.a, self.b, self.c, self.d, self.r)
+        x_3 = 2.0*tp/(1 + tp**2)
+        x_0 = (1 - tp**2)/(1 + tp**2)
+        t_mat = tfs.translation_matrix((Xsol, Ysol, Zsol))
+        r_mat = tfs.quaternion_matrix([0, 0, x_3, x_0])
+        tf_mat_base_to_eeff = tfs.concatenate_matrices(t_mat, r_mat)
+        return tf_mat_base_to_eeff
     
     def calc_swivel_angle(self, des_pose_4dof, joint_pos, joint_index):
         tf_mat_base_to_eeff, X, Y, Z, x_0, x_1, x_2, x_3 = self.convert_pose_4dof_to_tf_mat_and_7var(des_pose_4dof)
@@ -241,10 +259,10 @@ class Robot4CRU(object):
         r2 = la.norm(np.array([a, b, h2]) - np.array([B_abs[0,1], B_abs[1,1], B_abs[2,1]]), 2)
         r3 = la.norm(np.array([-a, b, h3]) - np.array([B_abs[0,2], B_abs[1,2], B_abs[2,2]]), 2)
         r4 = la.norm(np.array([-a, -b, h4]) - np.array([B_abs[0,3], B_abs[1,3], B_abs[2,3]]), 2)
-#         print('r1= ', r1)
-#         print('r2= ', r2)
-#         print('r3= ', r3)
-#         print('r4= ', r4)
+        print('r1= ', r1)
+        print('r2= ', r2)
+        print('r3= ', r3)
+        print('r4= ', r4)
 
 def convert_tf_mat_to_7var(tf_mat):
     quat = tfs.quaternion_from_matrix(tf_mat)
